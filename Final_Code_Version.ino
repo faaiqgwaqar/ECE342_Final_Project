@@ -1,86 +1,91 @@
 /* Faaiq Waqar - ECE 342
- * Block Checkoff 2 Demo - Radio Communications
- * May 11th 2021
+ * Final Program - Tempterature Sensor Project
+ * May 23rd 2021
  */
 
- // Step One - Import Libraries used for Communication
+/* Step One - Import Libraries */
+/* Import Library to handle IR signal */
 #include <IRremote.h>
+/* Import Library for Serial Communication */
 #include <SPI.h>
+/* Import Library for Radio Communication */
 #include<WiFiNINA.h> 
+/* Import Library for Blynk GUI Communication*/
 #include<BlynkSimpleWiFiNINA.h>
+/* Import Library for Temp Sensor Communication*/
 #include <Adafruit_MLX90614.h>
+/* Import Library for LCD Communication*/
 #include <LiquidCrystal.h>   
 
-Adafruit_MLX90614 mlx = Adafruit_MLX90614();
-
-// Estabolish Thermistor Constants to for Conversion
-
-// Auth Token in the Blynk App.
-// Go to the Project Settings (nut icon).
+/* Auth Token in the Blynk App.
+ Go to the Project Settings (nut icon). */
 char auth[] = "07zFp78wDTHlR_RAi1dYOeCOiwFq6l8L";
 
-// WiFi credentials.
-// Set password to "" for open networks.
+/* WiFi credentials.
+Set password to "" for open networks. */
 char ssid[] = "Linksys12214";
 char pass[] = "fyhtse6pr8";
 
-int current_user = 0;  
-int users[128];
-// saves the user pin of the current user     
-int dig_counter = 0;
-// saves the digit that the user ID entry is in
-bool user_set = false;
-bool history = false;
-int measurements = 0;
+/*-----( Intialize Integers )-----*/
+int current_user = 0;
+int dig_counter = 0; // Counter for User Entry
+int ind = 0; // History Viewing Index
+int measurements = 0; // Number of Measurements
+int v; // Intermediate Distance Variable
 
+/*-----( Intialize Constants )-----*/
+const int receiver = 10;
+const int piezoPin = 9;
+const int TRIG_PIN = 2; 
+const int ECHO_PIN = 3;
 
-// indicates whether a user is logged in
-float temp_obj = 0;
-float temp_amb = 0;
-float temps[128];
+/*-----( Intialize Integer Arrays )-----*/
+int users[128]; // User Data Over Time
 
+/*-----( Intialize Booleans )-----*/
+bool user_set = false; // Is a User Set
+bool history = false; // Are we viewing User History
 
-int receiver = 10; // Signal Pin of IR receiver to Arduino Digital Pin 11
-int piezoPin = 9;
-LiquidCrystal lcd(1, 2, 4, 5, 6, 7);  
+/*-----( Intialize Floats )-----*/
+float duration, distance_in_cm;
+float temp_obj = 0; // Recorded Temp
+float cm; // Distance in cm
+float inches; // Distance in inches
 
+/*-----( Intialize Float Arrays )-----*/
+float temps[128];  
 
-const int TRIG_PIN = 12;
-const int ECHO_PIN = 11;
+unsigned long t1;
+unsigned long t2;
+unsigned long pulse_width;
 
-
- unsigned long t1;
- unsigned long t2;
- unsigned long pulse_width;
- float cm;
- float inches;
- int v;
- float w;
 
 /*-----( Declare objects )-----*/
 IRrecv irrecv(receiver);     // create instance of 'irrecv'
 decode_results results;      // create instance of 'decode_results'
+Adafruit_MLX90614 mlx = Adafruit_MLX90614(); // init temp sensor
+LiquidCrystal lcd(0, 1, 4, 5, 6, 7); // init LCD display
 
-void setup()   /*----( SETUP: RUNS ONCE )----*/
+/*----( SETUP: RUNS ONCE )----*/
+void setup()
 {
-  Blynk.begin(auth, ssid, pass);
-  pinMode(TRIG_PIN, OUTPUT);
-  digitalWrite(TRIG_PIN, LOW);
-  lcd.begin(16,2); 
- // Initializes the interface to the LCD screen, and specifies the dimensions (width and height) of the display }
+  Blynk.begin(auth, ssid, pass); //Initialize IoT
+  pinMode(TRIG_PIN, OUTPUT); // Setup Ultrasonic Sensor
+  digitalWrite(TRIG_PIN, LOW); 
+  
+  lcd.begin(16,2); // Prepare initial LCD message
   lcd.print("Enter User ID"); 
- // Prints "Arduino" on the LCD
   lcd.setCursor(0,2);
- // Set the curser to the second line
+  
   irrecv.enableIRIn(); // Start the receiver
-  mlx.begin();
+  mlx.begin(); // Begin I2C with temp sensor
 
 }/*--(end setup )---*/
 
-
-void loop()   /*----( LOOP: RUNS CONSTANTLY )----*/
+/*----( LOOP: RUNS CONSTANTLY )----*/
+void loop() 
 {
-  Blynk.run();
+  Blynk.run(); // Start Connectivity to GUI
   if (irrecv.decode(&results)) // have we received an IR signal?
 
   {
@@ -89,14 +94,12 @@ void loop()   /*----( LOOP: RUNS CONSTANTLY )----*/
   }  
 }/* --(end main loop )-- */
 
-/*-----( Function )-----*/
-void translateIR() // takes action based on IR code received
-
-// describing Remote IR codes 
-
+/*-----( Function: translateIR )-----*/
+/*-----( takes action based on IR code received )-----*/
+void translateIR()
 {
 
-  switch(results.value)
+  switch(results.value) //Switch through different buttons
     
   {
 
@@ -114,43 +117,69 @@ void translateIR() // takes action based on IR code received
   break;
 
   case 0xFF6897: 
-      // Hold the trigger pin high for at least 10 us
-      digitalWrite(TRIG_PIN, HIGH);
-      delayMicroseconds(10);
-      digitalWrite(TRIG_PIN, LOW);
+   if(!history){
+   // Hold the trigger pin high for at least 10 us
+       do{
+   //Generate the ultrasonic waves
+   digitalWrite(TRIG_PIN, LOW); 
+   delayMicroseconds(2); 
+   digitalWrite(TRIG_PIN, HIGH); 
+   delayMicroseconds(10); 
+   digitalWrite(TRIG_PIN, LOW);
 
-  // Wait for pulse on echo pin
-      while ( digitalRead(ECHO_PIN) == 0 );
+  //Read in the echoed waves
+   duration = pulseIn(ECHO_PIN, HIGH);
 
-      // Measure how long the echo pin was held high (pulse width)
-      // Note: the micros() counter will overflow after ~70 min
-      t1 = micros();
-      while ( digitalRead(ECHO_PIN) == 1);
-      t2 = micros();
-      pulse_width = t2 - t1;
-
-  // Calculate distance in centimeters and inches. The constants
-  // are found in the datasheet, and calculated from the assumed speed
-  //of sound in air at sea level (~340 m/s).
-      cm = pulse_width / 58.0;
-
-    // Serial.print("Distance [cm] = "); Serial.print(cm); Serial.print("cm\n");
+   //Convert from time to distance using the speed of sound
+   
+    distance_in_cm = (duration*.0343)/2;
+    if(distance_in_cm > 20){
+      clearLCDLine(2);
+      lcd.setCursor(0,2);
+      lcd.print("Temp:");
+        lcd.print("Get Closer!");
+    }
+    else if(distance_in_cm < 10){
+      clearLCDLine(2);
+      lcd.setCursor(0,2);
+      lcd.print("Temp:");
+      lcd.print("Move Back!");
+    }
     
-    temp_obj = mlx.readObjectTempF();
-  
-   //  Serial.print("Ambient = "); Serial.print(temp_amb); 
-    // Serial.print("*F\tObject = "); Serial.print(temp_obj); Serial.println("*F");
+   }while(distance_in_cm > 20 || distance_in_cm < 10);
+
+    // measure and compensate the temperature
+    temp_obj = mlx.readObjectTempF() + temp_compensation(distance_in_cm);
+
+    // Notify if a fever is detected
+    if(temp_obj >= 100.4){
+      tone(piezoPin, 1000, 500);
+      clearLCDLine(2);
+      lcd.setCursor(0,2);
+      lcd.print("Fever!");
+      delay(1000);
+    }
+   
+    // Print out temperature to user
     clearLCDLine(2);
     lcd.setCursor(0,2);
     lcd.print("Temp:");
-    //Blynk user connected by virtual pin 3
     lcd.print(temp_obj);
     lcd.print("*F");
 
-    if(temp_obj >= 100.2) tone(piezoPin, 1000, 500);
 
     //Send the data to virtual pin 5 wirelessly
     Blynk.virtualWrite(V5, temp_obj); //sending to Blynk
+
+    // Check for overflow, reset if overflow
+    if(measurements >= 127) measurements = 0;
+
+    // Add the user data to history log
+    users[measurements] = current_user;
+    temps[measurements] = temp_obj;
+    measurements++;
+  }
+   
   break;
 
   // Numpad Buttons - Input to user ID
@@ -254,7 +283,8 @@ void translateIR() // takes action based on IR code received
   break;
 
   case 0xFFA857: 
-    if (measurements == 0){
+    // Case used to intialize reading temperatures
+    if (measurements == 0){ //case if no recordings
         lcd.clear();
         lcd.setCursor(0,0);
         lcd.print("No Recordings!");
@@ -271,27 +301,56 @@ void translateIR() // takes action based on IR code received
         lcd.print(temp_obj);
         lcd.print("*F");
     }
-    else{
-        if (history) history = false;
-        
-        else{
-          history = true;
+    else{ // if the recordings exist
+        if(history){ //are we already viewing the log - yes
+          history = false;
           lcd.clear();
           lcd.setCursor(0,0); 
           // Print welcome to user message and temp
-          lcd.print("Record "); lcd.print(measured); lcd.print("/"); lcd.print(measured);
+          lcd.print("Welcome:"); // Prints "Arduino" on the LCD
+          lcd.print(current_user);
           lcd.setCursor(0,2);
-          lcd.print(users[measured -1]); lcd.print(" "); lcd.print(temps[measured -1]); lcd.print("*F");
+          lcd.print("Temp:");
+          //Blynk user connected by virtual pin 3
+          lcd.print(temp_obj);
+          lcd.print("*F");
+        }
+        
+        else{ //are we already viewing the log - no
+          history = true;
+          lcd.clear();
+          lcd.setCursor(0,0); 
+          // Print the log and position
+          ind = measurements-1;
+          lcd.print("Record "); lcd.print(ind+1); lcd.print("/"); lcd.print(measurements);
+          lcd.setCursor(0,2);
+          lcd.print(users[ind]); lcd.print(" "); lcd.print(temps[ind]); lcd.print("*F");
         }
     }
   break;
   
-  case 0xFFE01F:
-  Serial.println("DOWN");    
+  case 0xFFE01F: // Move back in log
+  if(history && ind > 0){ // Check Bounds
+    ind--;
+    lcd.clear();
+    lcd.setCursor(0,0); 
+    // Print welcome to user message and temp
+    lcd.print("Record "); lcd.print(ind+1); lcd.print("/"); lcd.print(measurements);
+    lcd.setCursor(0,2);
+    lcd.print(users[ind]); lcd.print(" "); lcd.print(temps[ind]); lcd.print("*F");
+  }
   break;
   
-  case 0xFF906F: 
-  Serial.println("UP");    
+  case 0xFF906F: // Move forward in log
+  if(history && ind < measurements-1){ // Check Bounds
+    ind++;
+    lcd.clear();
+    lcd.setCursor(0,0); 
+    // Print welcome to user message and temp
+    lcd.print("Record "); lcd.print(ind+1); lcd.print("/"); lcd.print(measurements);
+    lcd.setCursor(0,2);
+    lcd.print(users[ind]); lcd.print(" "); lcd.print(temps[ind]); lcd.print("*F");
+  } 
   break;
   
 
@@ -313,6 +372,7 @@ void translateIR() // takes action based on IR code received
     lcd.print("Temp:");
     Blynk.virtualWrite(V3, current_user); //sending to Blynk
     //Blynk user connected by virtual pin 3
+    temp_obj = 0;
     lcd.print(temp_obj);
     lcd.print("*F");
   }
@@ -340,4 +400,10 @@ void clearLCDLine(int line)
         {
                 lcd.print(" ");
         }
+}
+
+/*----------- temp_compensation: polynomial compensation algorithm ------------*/
+float temp_compensation(float distance)
+{
+  return 0.0039*pow(distance,3) - 0.2231*pow(distance,2) + 4.4830*(distance) - 10.5833;
 }
